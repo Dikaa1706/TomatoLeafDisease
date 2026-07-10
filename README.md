@@ -20,9 +20,9 @@ Aplikasi Flutter untuk mendeteksi penyakit pada daun tomat menggunakan **model A
 > _Tambahkan screenshot aplikasi di sini setelah build pertama, misalnya:_
 >
 > ```markdown
-> | Beranda                   | Hasil Deteksi           | Saran AI                |
-> | ------------------------- | ----------------------- | ----------------------- |
-> | ![beranda](docs/Ui1.jpeg) | ![hasil](docs/Ui2.jpeg) | ![saran](docs/Ui3.jpeg) |
+> | Beranda                               | Hasil Deteksi                       | Saran AI                          |
+> | ------------------------------------- | ----------------------------------- | --------------------------------- |
+> | ![beranda](docs/screenshots-Ui1.jpeg) | ![hasil](docs/screenshots-Ui2.jpeg) | ![saran](docs/screenshot-Ui3.png) |
 > ```
 
 ## 🛠️ Teknologi yang Digunakan
