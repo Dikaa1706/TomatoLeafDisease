@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -9,10 +10,6 @@ void main() {
   runApp(const AplikasiTomat());
 }
 
-/// Widget akar (root) dari aplikasi Klinik Daun Tomat.
-///
-/// Mengatur tema global (skema warna, latar belakang) dan menetapkan
-/// [BerandaScreen] sebagai halaman pertama yang ditampilkan.
 class AplikasiTomat extends StatelessWidget {
   const AplikasiTomat({super.key});
 
@@ -32,11 +29,6 @@ class AplikasiTomat extends StatelessWidget {
   }
 }
 
-/// Halaman utama aplikasi.
-///
-/// Menampilkan area untuk mengambil/memilih foto daun tomat, menjalankan
-/// deteksi penyakit dengan model TensorFlow Lite secara lokal, dan (bila
-/// penyakit terdeteksi) meminta saran penanganan dari Gemini API.
 class BerandaScreen extends StatefulWidget {
   const BerandaScreen({super.key});
 
@@ -64,11 +56,6 @@ class _BerandaScreenState extends State<BerandaScreen> {
     });
   }
 
-  /// Memuat model TensorFlow Lite (`assets/model_tomat.tflite`) beserta
-  /// daftar labelnya (`assets/labels.txt`) ke memori.
-  ///
-  /// Harus selesai (ditandai [_modelSiap] menjadi `true`) sebelum tombol
-  /// kamera/galeri bisa dipakai — lihat [_ambilGambar].
   Future<void> _muatModelAI() async {
     try {
       await Tflite.loadModel(
@@ -87,11 +74,6 @@ class _BerandaScreenState extends State<BerandaScreen> {
     }
   }
 
-  /// Mengambil gambar dari [sumber] (kamera atau galeri), lalu langsung
-  /// memicu [_deteksiPenyakit] terhadap gambar tersebut.
-  ///
-  /// Tidak melakukan apa-apa selain menampilkan pesan jika model AI
-  /// ([_modelSiap]) belum selesai dimuat.
   Future<void> _ambilGambar(ImageSource sumber) async {
     if (!_modelSiap) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -108,42 +90,20 @@ class _BerandaScreenState extends State<BerandaScreen> {
         _hasilPrediksi = null;
         _rekomendasiGemini = "";
       });
-      // Setelah gambar diperoleh, langsung jalankan AI lokal
+
       _deteksiPenyakit(_image!.path);
     }
   }
 
-  /// Meminta saran penanganan dari Gemini API untuk [namaPenyakit] yang
-  /// terdeteksi, dan mengembalikannya sebagai teks berformat 3 poin bernomor
-  /// (penyebab → tindakan segera → pencegahan/pengobatan).
-  ///
-  /// Jika terjadi error (jaringan, timeout, atau respons API tidak valid),
-  /// fungsi ini mengembalikan pesan error yang sudah diformat untuk
-  /// ditampilkan langsung ke user — bukan melempar exception.
-  ///
-  /// Catatan teknis:
-  /// - Model `gemini-1.5-flash` (dan semua model Gemini 1.0/1.5) sudah
-  ///   dihentikan oleh Google → SELALU 404 apa pun versi endpoint-nya.
-  ///   Gunakan model aktif seperti `gemini-2.5-flash` atau `gemini-3.5-flash`.
-  /// - Endpoint resmi Gemini API saat ini menggunakan versi `v1beta`.
   Future<String> _ambilSaranGemini(String namaPenyakit) async {
-    // 💡 API Key TIDAK di-hardcode di sini — dibaca dari environment variable
-    // saat build/run, lewat --dart-define-from-file (lihat file env.json &
-    // README bagian "Konfigurasi API Key Gemini"). Ini penting karena repo
-    // publik: kalau key ditulis langsung di kode, siapa pun yang buka repo
-    // (atau lihat histori commit) bisa lihat dan pakai key kamu.
     const String apiKey = String.fromEnvironment('GEMINI_API_KEY');
 
     if (apiKey.isEmpty) {
       return "⚠️ API Key Gemini belum diatur!\n\nJalankan aplikasi dengan:\nflutter run --dart-define-from-file=env.json\n\nLihat README bagian 'Konfigurasi API Key Gemini' untuk cara bikin file env.json-nya.";
     }
 
-    // 💡 Nama model yang masih aktif per Juli 2026.
-    // Alternatif lain: "gemini-2.5-flash-lite" (lebih murah/cepat) atau
-    // "gemini-3.5-flash" (paling baru, kualitas lebih tinggi, lebih mahal).
     const String namaModel = "gemini-2.5-flash";
 
-    // 💡 Endpoint resmi Gemini API saat ini menggunakan versi v1beta.
     final String url =
         "https://generativelanguage.googleapis.com/v1beta/models/$namaModel:generateContent?key=$apiKey";
 
@@ -175,7 +135,7 @@ class _BerandaScreenState extends State<BerandaScreen> {
             headers: {"Content-Type": "application/json"},
             body: jsonEncode(payload),
           )
-          .timeout(const Duration(seconds: 30));
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = jsonDecode(response.body);
@@ -184,11 +144,11 @@ class _BerandaScreenState extends State<BerandaScreen> {
         if (teksHasil != null && teksHasil.isNotEmpty) {
           return teksHasil;
         }
-        return "⚠️ Respons dari Gemini kosong atau formatnya tidak sesuai dugaan.\n\nRaw response:\n${response.body}";
+        print("Respons Gemini kosong/tidak sesuai format: ${response.body}");
+        return "Hmm, AI-nya belum berhasil kasih saran nih 🤔\n\nCoba foto ulang atau tunggu sebentar lalu coba lagi ya.";
       }
 
-      // 💡 Tangani body error dengan aman, jangan langsung jsonDecode tanpa try/catch
-      // karena body error tidak selalu berupa JSON valid.
+      // body error tidak selalu berupa JSON valid, jadi dibungkus try/catch terpisah
       String errMsg = "Ada kendala pada server.";
       try {
         final Map<String, dynamic> errData = jsonDecode(response.body);
@@ -196,24 +156,27 @@ class _BerandaScreenState extends State<BerandaScreen> {
       } catch (_) {
         errMsg = response.body;
       }
-      return "❌ Error Server Google Gemini (Status ${response.statusCode}):\n\nPesan: $errMsg";
+      print("Error server Gemini (${response.statusCode}): $errMsg");
+      return "Server AI-nya lagi bermasalah nih 😔\n\nBukan salah kamu kok, coba lagi beberapa saat lagi ya.";
     } catch (e, stackTrace) {
-      // 🔍 DEBUG: cetak exception asli + tipe class-nya ke console `flutter run`
-      // supaya kita tahu ini SocketException, TimeoutException, HandshakeException, dll.
       print("=== ERROR GEMINI ===");
       print("Tipe: ${e.runtimeType}");
       print("Pesan: $e");
       print("StackTrace: $stackTrace");
       print("=====================");
 
-      return "⚠️ Gagal Melakukan Koneksi!\n\nTipe Error: ${e.runtimeType}\nDetail Sistem: ${e.toString()}\n\nSolusi Penanganan:\n1. Pastikan Anda sudah menambahkan izin INTERNET di 'AndroidManifest.xml'.\n2. Pastikan HP fisik Anda memiliki koneksi internet aktif.";
+      if (e is TimeoutException) {
+        return "Koneksinya lama banget responnya 🐢\n\nSepertinya internet kamu lagi lambat atau sinyalnya kurang stabil. Coba pindah ke WiFi/tempat dengan sinyal lebih kuat, terus foto ulang ya.";
+      }
+
+      if (e is SocketException) {
+        return "Nggak bisa terhubung ke internet 📡\n\nCek dulu koneksi WiFi atau data seluler kamu, pastikan aktif, terus coba lagi.";
+      }
+
+      return "Ada gangguan pas menghubungi AI 😔\n\nCoba periksa koneksi internet kamu dan coba lagi sebentar lagi.";
     }
   }
 
-  /// Menjalankan model TFLite terhadap gambar di [pathGambar], menyimpan
-  /// hasilnya ke [_hasilPrediksi], dan — bila hasilnya bukan "sehat" dengan
-  /// keyakinan ≥ 55% — memanggil [_ambilSaranGemini] untuk mendapatkan saran
-  /// penanganan.
   Future<void> _deteksiPenyakit(String pathGambar) async {
     try {
       double meanValue = 0.0;
@@ -233,7 +196,6 @@ class _BerandaScreenState extends State<BerandaScreen> {
         _sedangMemuat = false;
       });
 
-      // Jika terdeteksi sakit dengan akurasi memadai, konsultasikan ke Gemini
       if (hasil != null && hasil.isNotEmpty) {
         double confidence = hasil[0]["confidence"];
         String label = hasil[0]["label"];
@@ -267,14 +229,13 @@ class _BerandaScreenState extends State<BerandaScreen> {
 
   @override
   void dispose() {
-    Tflite.close(); // Tutup memori AI lokal
+    Tflite.close();
     super.dispose();
   }
 
-  // Palet warna modern — hijau segar sebagai warna utama, oranye untuk aksen peringatan
-  static const Color _primer = Color(0xFF1FA45C); // hijau segar
+  static const Color _primer = Color(0xFF1FA45C);
   static const Color _primerGelap = Color(0xFF0D7A3F);
-  static const Color _aksenWarning = Color(0xFFF59E0B); // amber hangat
+  static const Color _aksenWarning = Color(0xFFF59E0B);
   static const Color _latarLembut = Color(0xFFF4F7F4);
   static const Color _teksUtama = Color(0xFF1B2420);
   static const Color _teksSamar = Color(0xFF6B7A70);
@@ -307,7 +268,6 @@ class _BerandaScreenState extends State<BerandaScreen> {
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
-            // --- HEADER MODERN ---
             SliverToBoxAdapter(
               child: Container(
                 width: double.infinity,
@@ -366,8 +326,6 @@ class _BerandaScreenState extends State<BerandaScreen> {
                 ),
               ),
             ),
-
-            // --- KONTEN UTAMA (kartu melayang di atas header) ---
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
               sliver: SliverList(
@@ -376,17 +334,13 @@ class _BerandaScreenState extends State<BerandaScreen> {
                     offset: const Offset(0, -22),
                     child: Column(
                       children: [
-                        // --- PREVIEW GAMBAR ---
                         _KartuFoto(
                           image: _image,
                           onTap: _modelSiap
                               ? () => _tampilkanPilihanSumber(context)
                               : null,
                         ),
-
                         const SizedBox(height: 18),
-
-                        // --- HASIL DETEKSI (dengan transisi halus) ---
                         AnimatedSwitcher(
                           duration: const Duration(milliseconds: 300),
                           child: _sedangMemuat
@@ -529,8 +483,6 @@ class _BerandaScreenState extends State<BerandaScreen> {
     );
   }
 }
-
-// ============== WIDGET-WIDGET KECIL (biar build() lebih rapi) ==============
 
 class _ChipStatusModel extends StatelessWidget {
   final bool siap;
@@ -740,7 +692,6 @@ class _KartuHasil extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Badge status pill
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
@@ -809,11 +760,6 @@ class _KartuHasil extends StatelessWidget {
   }
 }
 
-/// Menampilkan saran dari Gemini dalam bentuk beberapa *bubble* kartu
-/// terpisah (bukan satu blok teks panjang), dipecah otomatis berdasarkan
-/// penomoran "1.", "2.", "3." dari respons AI.
-///
-/// Lihat [_pisahkanPoin] untuk logika pemecahan & pembersihan markdown.
 class _KartuSaranAI extends StatelessWidget {
   final String teks;
   final Color warnaPrimer;
@@ -825,10 +771,6 @@ class _KartuSaranAI extends StatelessWidget {
     required this.teksUtama,
   });
 
-  // Judul & ikon default untuk 3 poin yang selalu kita minta ke Gemini:
-  // 1) penyebab, 2) tindakan segera, 3) pencegahan/pengobatan.
-  // Kalau Gemini balikin poin lebih/kurang dari 3, sisanya tetap ditampilkan
-  // dengan judul & ikon generik supaya tidak error.
   static const List<_GayaBubble> _gayaBubble = [
     _GayaBubble(
       judul: 'Kenapa Ini Bisa Terjadi',
@@ -852,8 +794,6 @@ class _KartuSaranAI extends StatelessWidget {
     warna: Color(0xFF64748B), // slate
   );
 
-  // Memecah teks jadi list poin berdasarkan penomoran "1.", "2.", dst,
-  // lalu membersihkan markdown (**bold**, bullet "- "/"* ") jadi teks polos.
   List<String> _pisahkanPoin(String mentah) {
     final potongan = mentah
         .split(RegExp(r'\n?\s*\d+\.\s+'))
